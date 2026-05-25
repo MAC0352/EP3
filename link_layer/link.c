@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+
 int send_packet(int mac_destination, int mac_source, void* data, int data_size){
     //packet loss
     if ((float)rand()/(float)RAND_MAX <= LOSS_RATE)
@@ -62,11 +63,11 @@ int send_packet(int mac_destination, int mac_source, void* data, int data_size){
         int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
         if (fd < 0) { freeaddrinfo(res); free(linkData); return -1; }
 
-
-        if (connect(fd, res->ai_addr, res->ai_addrlen) < 0) {
-            freeaddrinfo(res); close(fd);free(linkData); return -1;
-        }
+        int resc = connect(fd, res->ai_addr, res->ai_addrlen);
         freeaddrinfo(res);
+        if (resc < 0) {
+            freeaddrinfo(res); close(fd);free(linkData); continue; //se não conseguir conectar apenas ignora
+        }
         
 
         write(fd,linkData,data_size+2*sizeof(int));
@@ -85,12 +86,12 @@ int send_packet(int mac_destination, int mac_source, void* data, int data_size){
 }
 
 
-int listen_addr(void* data, int mac_adress,char* host,char* port){
+int listen_addr(struct Frame *frame, int mac_adress,char* host,char* port){
     int srv = socket(AF_INET, SOCK_STREAM, 0);
     if (srv < 0) { return 1; }
 
-    //int yes = 1;
-    //setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    int yes = 1;
+    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
 
     struct sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
@@ -103,4 +104,27 @@ int listen_addr(void* data, int mac_adress,char* host,char* port){
     if (listen(srv, 16) < 0) {
         close(srv); return 1;
     }
+
+    int acp =  0;
+    
+    //verifica se o pacote recebido tem o mac do host 
+    while (acp == 0)
+    {
+        int pkgFd = accept(srv, NULL, NULL);
+        int rcv_mac[1];
+        recv(pkgFd, rcv_mac,sizeof(int),0);
+        if (rcv_mac[0]==mac_adress)
+        {
+            char dados[MAXDATASIZE];
+            frame->destinationAdress = mac_adress;
+            recv(pkgFd, &frame->sourceAdress,sizeof(int),0);
+            recv(pkgFd, &frame->data,MAXDATASIZE,0);
+            
+            acp=1;
+        }
+        
+    }
+    close(srv);
+    return 0;
+    
 }
