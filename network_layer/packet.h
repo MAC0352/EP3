@@ -2,8 +2,8 @@ struct Packet
 {
     int headerLength;
     int totalLength;
-    int sourceAdress;
-    int destinationAdress;
+    int sourceAddress;
+    int destinationAddress;
     void* data;
 
 };

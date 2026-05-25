@@ -1,14 +1,14 @@
 #include "packet.h"
 
 //desencapsula pacote recebido
-struct Packet deserializePacket(void* packet);
+struct Packet deserializePacket(void* pkgData);
 
 //encapsula pacote para o envio 
 void* serializePacket(struct Packet packet);
 
-int send(int ip_destination, int ip_source, void* data);
+int network_send(int ip_destination, int ip_source, void* data,int size);
 
-int listen(int ip_adress, void* data);
+int network_listen(int ip_adress, struct Packet*);
 
 //simula protocolo ARP
 int resolveIPToMAC(int ip_adress);
