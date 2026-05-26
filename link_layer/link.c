@@ -62,7 +62,7 @@ int send_packet(int mac_destination, int mac_source, void* data, int data_size){
         int resc = connect(fd, res->ai_addr, res->ai_addrlen);
         freeaddrinfo(res);
         if (resc < 0) {
-            freeaddrinfo(res); close(fd);free(linkData); continue; //se não conseguir conectar apenas ignora
+            close(fd);free(linkData); continue; //se não conseguir conectar apenas ignora
         }
         
 
@@ -82,7 +82,7 @@ int send_packet(int mac_destination, int mac_source, void* data, int data_size){
 }
 
 
-int listen_addr(struct Frame *frame, int mac_adress,char* host,char* port, int timeout){
+int listen_addr(struct Frame *frame, int mac_adress,char* host,int port, int timeout){
     int srv = socket(AF_INET, SOCK_STREAM, 0);
     if (srv < 0) { return -1; }
 
@@ -92,7 +92,7 @@ int listen_addr(struct Frame *frame, int mac_adress,char* host,char* port, int t
     struct sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons((uint16_t)atoi(port));
+    addr.sin_port = htons((uint16_t)port);
 
     if (bind(srv, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close(srv); return -1;
@@ -112,7 +112,7 @@ int listen_addr(struct Frame *frame, int mac_adress,char* host,char* port, int t
     timeradd(&tvbegin,&tvout,&tvend);
 
     //verifica se o pacote recebido tem o mac do host 
-    while (accept){
+    while (acp==0){
 
         gettimeofday(&tvnow, NULL);
         if (timercmp(&tvnow,&tvend,>))
@@ -129,7 +129,7 @@ int listen_addr(struct Frame *frame, int mac_adress,char* host,char* port, int t
         recv(pkgFd, rcv_mac,sizeof(int),0);
         if (rcv_mac[0]==mac_adress)
         {
-            char dados[MAXDATASIZE];
+            void* dados = malloc(MAXDATASIZE);
             frame->destinationAdress = mac_adress;
             recv(pkgFd, &frame->sourceAdress,sizeof(int),0);
             recv(pkgFd, &frame->data,MAXDATASIZE,0);

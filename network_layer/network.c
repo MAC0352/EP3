@@ -5,24 +5,27 @@
 struct Packet deserializePacket(void* pkgData){
     struct Packet packet;
     int i=0;
-    memcpy(&packet.headerLength,pkgData+i,sizeof(packet.headerLength));
+    unsigned char *pchar = (unsigned char *)pkgData;
+    
+    memcpy(&packet.headerLength,&pchar,sizeof(packet.headerLength));
     i += sizeof(packet.headerLength);
-    memcpy(&packet.totalLength,pkgData+i,sizeof(packet.totalLength));
+    memcpy(&packet.totalLength,&pchar+i,sizeof(packet.totalLength));
     i += sizeof(packet.totalLength);
-    memcpy(&packet.sourceAddress,pkgData+i,sizeof(packet.sourceAddress));
+    memcpy(&packet.sourceAddress,&pchar+i,sizeof(packet.sourceAddress));
     i += sizeof(packet.sourceAddress);
-    memcpy(&packet.destinationAddress,pkgData+i,sizeof(packet.destinationAddress));
+    memcpy(&packet.destinationAddress,&pchar+i,sizeof(packet.destinationAddress));
     i += sizeof(packet.destinationAddress);
-
+    
+    printf("%d\n",packet.headerLength);
     int len = packet.totalLength-packet.headerLength;
-    packet.data  =  malloc(sizeof(len));
+    packet.data  =  malloc(len);
     memcpy(packet.data,pkgData+i,len);
 
     return packet;
 }
 
 void* serializePacket(struct Packet packet){
-    void* pkgData = malloc(packet.totalLength);
+    unsigned char* pkgData = malloc(packet.totalLength);
 
     int i=0;
     memcpy(pkgData+i,&packet.headerLength,sizeof(packet.headerLength));
@@ -35,9 +38,7 @@ void* serializePacket(struct Packet packet){
     i += sizeof(packet.destinationAddress);
 
     int len = packet.totalLength-packet.headerLength;
-    packet.data  =  malloc(len);
     memcpy(pkgData+i,packet.data,len);
-    //free(packet.data);
     return pkgData;
 
 
@@ -59,6 +60,7 @@ int network_send(int ip_destination, int ip_source, void* data,int size){
     packet.headerLength = 4*sizeof(int);
     packet.totalLength = packet.headerLength + size;
     packet.data = data;
+    
 
     int res = send_packet(resolveIPToMAC(ip_destination),
                 resolveIPToMAC(ip_source),
@@ -69,16 +71,20 @@ int network_send(int ip_destination, int ip_source, void* data,int size){
 }
 int network_listen(int ip_adress, struct Packet* packet,int timeout){
     struct Frame *frame = malloc(sizeof(struct Frame));
-    
-    if (listen_addr(frame,resolveIPToMAC(ip_adress),"0.0.0.0","7777",timeout)!=0)
+
+    //printf("entra1");
+    int res = listen_addr(frame,resolveIPToMAC(ip_adress),"0.0.0.0",ip_adress,timeout); 
+    if (res!=0)
     {
         free(frame);
-        return 1;
+        return res;
     }
     
-
+    //printf("entra2");
+    //printf("dest: %d \nsource %d  \ndata %d\n",frame->destinationAdress,frame->sourceAdress,*(((int *)&frame->data)+2));
     struct Packet pkg = deserializePacket(frame->data);
-    memcpy(packet,&pkg,sizeof(struct Packet));
+    printf("%d",frame->data);
+    //memcpy(packet,&pkg,sizeof(struct Packet));
 
     free(frame);
     return 0;
