@@ -8,7 +8,7 @@ void* serializePacket(struct Packet packet);
 
 int network_send(int ip_destination, int ip_source, void* data,int size);
 
-int network_listen(int ip_adress, struct Packet*);
+int network_listen(int ip_adress, struct Packet*,int timeout);
 
 //simula protocolo ARP
 int resolveIPToMAC(int ip_adress);

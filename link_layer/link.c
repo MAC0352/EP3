@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
 
 int send_packet(int mac_destination, int mac_source, void* data, int data_size){
     //packet loss
@@ -13,11 +14,6 @@ int send_packet(int mac_destination, int mac_source, void* data, int data_size){
     {
         return 0;
     }
-
-
-    int delay = AVARAGE_DELAY - OFSET_DELAY + rand()%(2*OFSET_DELAY+1);
-    delay *=1000;
-    usleep(delay);
 
     //adicionar mac no pacote
     void* linkData;
@@ -86,9 +82,9 @@ int send_packet(int mac_destination, int mac_source, void* data, int data_size){
 }
 
 
-int listen_addr(struct Frame *frame, int mac_adress,char* host,char* port){
+int listen_addr(struct Frame *frame, int mac_adress,char* host,char* port, int timeout){
     int srv = socket(AF_INET, SOCK_STREAM, 0);
-    if (srv < 0) { return 1; }
+    if (srv < 0) { return -1; }
 
     int yes = 1;
     setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
@@ -99,18 +95,36 @@ int listen_addr(struct Frame *frame, int mac_adress,char* host,char* port){
     addr.sin_port = htons((uint16_t)atoi(port));
 
     if (bind(srv, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        close(srv); return 1;
+        close(srv); return -1;
     }
     if (listen(srv, 16) < 0) {
-        close(srv); return 1;
+        close(srv); return -1;
     }
 
     int acp =  0;
     
+    //variaveis para mudar o timeout cada vez que umpacote é recebido
+    struct timeval tvbegin;
+    struct timeval tvnow;
+    struct timeval tvend;
+    struct timeval tvout={.tv_sec=timeout/1000000,.tv_usec=timeout%1000000}; 
+    gettimeofday(&tvbegin, NULL);
+    timeradd(&tvbegin,&tvout,&tvend);
+
     //verifica se o pacote recebido tem o mac do host 
-    while (acp == 0)
-    {
+    while (accept){
+
+        gettimeofday(&tvnow, NULL);
+        if (timercmp(&tvnow,&tvend,>))
+        {
+            close(srv);
+            return 1;
+        }
+        timersub(&tvend,&tvnow,&tvout);
+
+        setsockopt(srv, SOL_SOCKET, SO_RCVTIMEO, &tvout, sizeof(struct timeval));
         int pkgFd = accept(srv, NULL, NULL);
+
         int rcv_mac[1];
         recv(pkgFd, rcv_mac,sizeof(int),0);
         if (rcv_mac[0]==mac_adress)
@@ -122,9 +136,16 @@ int listen_addr(struct Frame *frame, int mac_adress,char* host,char* port){
             
             acp=1;
         }
+
+        
         
     }
     close(srv);
+
+    int delay = AVARAGE_DELAY - OFSET_DELAY + rand()%(2*OFSET_DELAY+1);
+    delay *=1000;
+    usleep(delay);
+
     return 0;
     
 }

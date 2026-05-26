@@ -67,10 +67,10 @@ int network_send(int ip_destination, int ip_source, void* data,int size){
     //free(packet.data);
     return res;
 }
-int network_listen(int ip_adress, struct Packet* packet){
+int network_listen(int ip_adress, struct Packet* packet,int timeout){
     struct Frame *frame = malloc(sizeof(struct Frame));
     
-    if (listen_addr(frame,resolveIPToMAC(ip_adress),"0.0.0.0","7777")!=0)
+    if (listen_addr(frame,resolveIPToMAC(ip_adress),"0.0.0.0","7777",timeout)!=0)
     {
         free(frame);
         return 1;
