@@ -1,3 +1,6 @@
+#ifndef PACKET_H
+#define PACKET_H
+
 struct Packet
 {
     int headerLength;
@@ -7,3 +10,5 @@ struct Packet
     void* data;
 
 };
+
+#endif

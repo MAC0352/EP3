@@ -9,8 +9,8 @@ Sempre que um pacote é enviado ele é enviado para todos os endereços listados
 | ----- | --- |
 |   Porta de Destino   | Porta de Origem     |
 |  Número da Sequencia| Número do Ack|
-| Checksum| Tamanho da Janela| 
-|Flag||
+| Checksum| Flags| 
+|Dados||
 
 ### Camada de Rede
 

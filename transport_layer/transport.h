@@ -1,12 +1,41 @@
+#ifndef TRANSPORT_H
+#define TRANSPORT_H
+
 #include "segment.h"
 #include "network_layer/network.h"
 
-//desencapsula segmento recebido
-struct Segment deserializeSegment(void* segment);
+// Timeout de retransmissão em microssegundos
+#define TRANSPORT_TIMEOUT_US  2000000  
+#define TRANSPORT_MAX_RETRIES 3
 
-//encapsula segmento para o envio 
-void* serializeSegment(struct Segment segment);
+/*
+* Envia 'data' (data_size bytes) de forma confiável usando  rdt3.0
+* (stop-and-wait com ACK + retransmissão por timeout).
+*
+*   ip_src / ip_dst   : endereços da camada de rede
+*   port_src / port_dst: portas lógicas (multiplexação)
+*   seq               : número de sequência inicial (0 ou 1)
+*   listen_host/port  : onde este nó escuta para receber o ACK
+*
+* Retorna 0 em sucesso, -1 se excedeu MAX_RETRIES.
+*/
+int transport_send(int ip_dst, int ip_src,
+                   int port_dst, int port_src,
+                   int seq,
+                   const char *listen_host, const char *listen_port,
+                   void *data, int data_size);
 
-int send(int ip_destination, int ip_source, int port_destination, int port_source, void* data);
+/*
+* Recebe um segmento de dados destinado a ip_address:port.
+* Envia ACK automaticamente.
+* Preenche buf (até buf_size bytes) com o payload.
+* Retorna número de bytes recebidos, ou -1 em erro/timeout.
+*
+*   expected_seq : sequência esperada (0 ou 1); atualizada pelo chamador.
+*/
+int transport_recv(int ip_address, int port,
+                   const char *listen_host, const char *listen_port,
+                   int expected_seq, int timeout_us,
+                   void *buf, int buf_size);
 
-int listen(int ip_adress, int port, void* data);
+#endif
