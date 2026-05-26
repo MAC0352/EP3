@@ -7,6 +7,160 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
+#include <pthread.h>
+
+// Helpers
+
+static ssize_t write_all(int fd, const void *buf, size_t n) {
+    size_t sent = 0;
+    while (sent < n) {
+        ssize_t r = write(fd, (const char *)buf + sent, n - sent);
+        if (r <= 0) return -1;
+        sent += r;
+    }
+    return (ssize_t)sent;
+}
+
+static ssize_t read_all(int fd, void *buf, size_t n) {
+    size_t got = 0;
+    while (got < n) {
+        ssize_t r = read(fd, (char *)buf + got, n - got);
+        if (r <= 0) return -1;
+        got += r;
+    }
+    return (ssize_t)got;
+}
+
+// Servidor TCP persistente -- baseado em rdt3.0
+ /*
+ * Um único servidor roda em background e deposita frames
+ * numa fila interna; listen_addr consome dessa fila.
+ */
+
+#define QUEUE_CAP 32
+
+typedef struct {
+    struct Frame *frames[QUEUE_CAP];
+    int head, tail, count;
+    pthread_mutex_t mutex;
+    pthread_cond_t  cond;
+} FrameQueue;
+
+static FrameQueue g_queue = {
+    .head = 0, .tail = 0, .count = 0,
+    .mutex  = PTHREAD_MUTEX_INITIALIZER,
+    .cond = PTHREAD_COND_INITIALIZER,
+};
+
+// Empurra o quadro encapsulado na fila 
+static void queue_push(struct Frame *f) {
+    pthread_mutex_lock(&g_queue.mutex);
+    if (g_queue.count < QUEUE_CAP) {
+        g_queue.frames[g_queue.tail] = f;
+        g_queue.tail = (g_queue.tail + 1) % QUEUE_CAP;
+        g_queue.count++;
+        pthread_cond_broadcast(&g_queue.cond);
+    } else {
+        // descarta se fila cheia
+        free(f->data); free(f); 
+    }
+    pthread_mutex_unlock(&g_queue.mutex);
+}
+
+// Retira o primeiro frame com destinationAdress == mac, ou NULL em timeout.
+static struct Frame *queue_pop(int mac, int timeout_us) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec  += timeout_us / 1000000;
+    ts.tv_nsec += (timeout_us % 1000000) * 1000L;
+    if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
+
+    pthread_mutex_lock(&g_queue.mutex);
+    while (1) {
+        /* procura frame para este mac */
+        for (int i = 0; i < g_queue.count; i++) {
+            int idx = (g_queue.head + i) % QUEUE_CAP;
+            struct Frame *f = g_queue.frames[idx];
+            if (f->destinationAdress == mac) {
+                /* remove do meio: shift */
+                for (int j = i; j < g_queue.count - 1; j++) {
+                    int a = (g_queue.head + j)     % QUEUE_CAP;
+                    int b = (g_queue.head + j + 1) % QUEUE_CAP;
+                    g_queue.frames[a] = g_queue.frames[b];
+                }
+                g_queue.tail = (g_queue.tail - 1 + QUEUE_CAP) % QUEUE_CAP;
+                g_queue.count--;
+                pthread_mutex_unlock(&g_queue.mutex);
+                return f;
+            }
+        }
+        /* aguarda com timeout */
+        int r = pthread_cond_timedwait(&g_queue.cond, &g_queue.mutex, &ts);
+        if (r != 0) { /* ETIMEDOUT */
+            pthread_mutex_unlock(&g_queue.mutex);
+            return NULL;
+        }
+    }
+}
+
+// Thread do servidor: aceita conexões e empurra frames na fila
+static void *server_thread(void *arg) {
+    int srv = *(int *)arg;
+    free(arg);
+    while (1) {
+        int cli = accept(srv, NULL, NULL);
+        if (cli < 0) continue;
+
+        int hdr[3];
+        if (read_all(cli, hdr, sizeof(hdr)) < 0) { close(cli); continue; }
+
+        int dst  = hdr[0];
+        int src  = hdr[1];
+        int size = hdr[2];
+
+        if (size <= 0 || size > MAXDATASIZE) { close(cli); continue; }
+
+        struct Frame *f = malloc(sizeof(struct Frame));
+        f->data = malloc(size);
+        if (read_all(cli, f->data, size) < 0) {
+            free(f->data); free(f); close(cli); continue;
+        }
+        f->destinationAdress = dst;
+        f->sourceAdress      = src;
+        close(cli);
+
+        queue_push(f);
+    }
+    return NULL;
+}
+
+int link_server_start(char* host, char* port) {
+    (void)host;
+    int srv = socket(AF_INET, SOCK_STREAM, 0);
+    if (srv < 0) { perror("link_server_start: socket"); return -1; }
+
+    int yes = 1;
+    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
+    struct sockaddr_in addr = {0};
+    addr.sin_family      = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port        = htons((uint16_t)atoi(port));
+
+    if (bind(srv, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        perror("link_server_start: bind"); close(srv); return -1;
+    }
+    if (listen(srv, 32) < 0) {
+        perror("link_server_start: listen"); close(srv); return -1;
+    }
+
+    int *srv_ptr = malloc(sizeof(int));
+    *srv_ptr = srv;
+    pthread_t tid;
+    pthread_create(&tid, NULL, server_thread, srv_ptr);
+    pthread_detach(tid);
+    return 0;
+}
 
 int send_packet(int mac_destination, int mac_source, void* data, int data_size){
     //packet loss
@@ -15,12 +169,13 @@ int send_packet(int mac_destination, int mac_source, void* data, int data_size){
         return 0;
     }
 
-    //adicionar mac no pacote
-    void* linkData;
-    linkData = malloc(2*sizeof(int)+data_size);
-    memcpy(linkData,&mac_destination,sizeof(mac_destination));
-    memcpy(linkData+sizeof(mac_destination),&mac_source,sizeof(mac_source));
-    memcpy(linkData+sizeof(mac_destination)+sizeof(mac_source),data,data_size);
+    // wire format: [dst(4)][src(4)][size(4)][data]
+    int total = 3*sizeof(int) + data_size;
+    void* linkData = malloc(total);
+    memcpy(linkData,             &mac_destination, sizeof(int));
+    memcpy(linkData+sizeof(int), &mac_source,      sizeof(int));
+    memcpy(linkData+2*sizeof(int), &data_size,     sizeof(int));
+    memcpy(linkData+3*sizeof(int), data,           data_size);
 
     //ler arquivo hosts e enviar para os IPs reais 
     FILE * fp;
@@ -34,7 +189,6 @@ int send_packet(int mac_destination, int mac_source, void* data, int data_size){
         free(linkData);
         return 1;
     }
-    
 
     while ((read = getline(&line, &len, fp)) != -1) {
         
@@ -45,107 +199,54 @@ int send_packet(int mac_destination, int mac_source, void* data, int data_size){
         {
             printf("hosts file must to have lines in the format: <ip>:<port>\n");
             free(linkData);
+            fclose(fp);
+            if (line) free(line);
             return 1;
         }
-        
-        
-        //enviando o pacote pelo soquete TCP
+        port[strcspn(port, "\r\n")] = '\0';
 
+        //enviando o pacote pelo soquete TCP
         struct addrinfo hints = {0}, *res = NULL;
         hints.ai_family = AF_UNSPEC;
         hints.ai_socktype = SOCK_STREAM;
-        if (getaddrinfo(host, port, &hints, &res) != 0 || !res) {free(linkData); return -1;}
+        if (getaddrinfo(host, port, &hints, &res) != 0 || !res) continue;
 
         int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-        if (fd < 0) { freeaddrinfo(res); free(linkData); return -1; }
+        if (fd < 0) { freeaddrinfo(res); continue; }
 
         int resc = connect(fd, res->ai_addr, res->ai_addrlen);
         freeaddrinfo(res);
         if (resc < 0) {
-            freeaddrinfo(res); close(fd);free(linkData); continue; //se não conseguir conectar apenas ignora
+            close(fd); continue; //se não conseguir conectar apenas ignora
         }
-        
 
-        write(fd,linkData,data_size+2*sizeof(int));
-
-        free(linkData);
-
+        write_all(fd, linkData, total);
         close(fd);
-
     }
 
+    free(linkData);
     fclose(fp);
     if (line)
         free(line);
+
+    //delay de envio
+    int delay = AVARAGE_DELAY - OFSET_DELAY + rand()%(2*OFSET_DELAY+1);
+    usleep(delay * 1000);
     
     return 0;
 }
 
+int listen_addr(struct Frame *frame, int mac_adress, char* host, char* port, int timeout){
+    // servidor já iniciado por link_server_start
+    (void)host; (void)port;
 
-int listen_addr(struct Frame *frame, int mac_adress,char* host,char* port, int timeout){
-    int srv = socket(AF_INET, SOCK_STREAM, 0);
-    if (srv < 0) { return -1; }
+    struct Frame *f = queue_pop(mac_adress, timeout);
+    if (!f) return 1; /* timeout */
 
-    int yes = 1;
-    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-
-    struct sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons((uint16_t)atoi(port));
-
-    if (bind(srv, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        close(srv); return -1;
-    }
-    if (listen(srv, 16) < 0) {
-        close(srv); return -1;
-    }
-
-    int acp =  0;
-    
-    //variaveis para mudar o timeout cada vez que umpacote é recebido
-    struct timeval tvbegin;
-    struct timeval tvnow;
-    struct timeval tvend;
-    struct timeval tvout={.tv_sec=timeout/1000000,.tv_usec=timeout%1000000}; 
-    gettimeofday(&tvbegin, NULL);
-    timeradd(&tvbegin,&tvout,&tvend);
-
-    //verifica se o pacote recebido tem o mac do host 
-    while (accept){
-
-        gettimeofday(&tvnow, NULL);
-        if (timercmp(&tvnow,&tvend,>))
-        {
-            close(srv);
-            return 1;
-        }
-        timersub(&tvend,&tvnow,&tvout);
-
-        setsockopt(srv, SOL_SOCKET, SO_RCVTIMEO, &tvout, sizeof(struct timeval));
-        int pkgFd = accept(srv, NULL, NULL);
-
-        int rcv_mac[1];
-        recv(pkgFd, rcv_mac,sizeof(int),0);
-        if (rcv_mac[0]==mac_adress)
-        {
-            char dados[MAXDATASIZE];
-            frame->destinationAdress = mac_adress;
-            recv(pkgFd, &frame->sourceAdress,sizeof(int),0);
-            recv(pkgFd, &frame->data,MAXDATASIZE,0);
-            
-            acp=1;
-        }
-
-        
-        
-    }
-    close(srv);
-
-    int delay = AVARAGE_DELAY - OFSET_DELAY + rand()%(2*OFSET_DELAY+1);
-    delay *=1000;
-    usleep(delay);
-
+    frame->destinationAdress = f->destinationAdress;
+    frame->sourceAdress      = f->sourceAdress;
+    // transfere responsabilidade
+    frame->data              = f->data; 
+    free(f);
     return 0;
-    
 }
