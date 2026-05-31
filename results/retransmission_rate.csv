@@ -1,0 +1,2 @@
+rep,attempts,acks,timeouts,retransmissions,rate_pct,delivered,alice_log
+1,3,0,3,3,NA,0,logs/rt_r1_alice.log

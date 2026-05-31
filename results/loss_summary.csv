@@ -1,0 +1,4 @@
+loss_rate,attempts,acks,timeouts,retransmissions,rate_pct,delivered,alice_log
+0.0,22,22,0,0,0.0000,20,logs/loss_0_0_alice.log
+0.1,3,0,3,3,NA,0,logs/loss_0_1_alice.log
+0.3,3,0,3,3,NA,0,logs/loss_0_3_alice.log

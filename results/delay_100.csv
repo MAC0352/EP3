@@ -1,0 +1,2 @@
+average_delay_ms,elapsed_ms,connected,alice_attempts,attempts,acks,timeouts,retransmissions,rate_pct,delivered,alice_log,bob_log
+100,120010,1,1,60,3,56,57,1900.0000,1,logs/delay_100_alice.log,logs/delay_100_bob.log

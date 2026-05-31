@@ -1,0 +1,2 @@
+loss_rate,connected,alice_attempts,attempts,acks,timeouts,retransmissions,rate_pct,delivered,alice_log,bob_log
+0.1,1,1,60,3,57,57,1900.0000,1,logs/loss_0_1_alice.log,logs/loss_0_1_bob.log

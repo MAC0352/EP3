@@ -1,0 +1,7 @@
+log=[run] cenário: loss_0_5
+logs/loss_0_5_alice.log
+tentativas=
+acks=
+timeouts=
+retransmissoes=0
+taxa_retransmissao=indefinida
