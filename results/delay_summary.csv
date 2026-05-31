@@ -1,6 +1,0 @@
-average_delay_ms,elapsed_ms,attempts,acks,timeouts,retransmissions,rate_pct,delivered,alice_log
-50,1341,22,22,0,0,0.0000,20,logs/delay_50_alice.log
-100,2572,22,22,0,0,0.0000,20,logs/delay_100_alice.log
-250,6092,22,22,0,0,0.0000,20,logs/delay_250_alice.log
-500,11771,22,22,0,0,0.0000,20,logs/delay_500_alice.log
-1000,23309,22,22,0,0,0.0000,20,logs/delay_1000_alice.log

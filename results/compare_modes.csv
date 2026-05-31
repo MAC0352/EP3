@@ -1,3 +1,0 @@
-mode,attempts,acks,timeouts,retransmissions,rate_pct,delivered,alice_log
-reliable_on,0,0,0,0,NA,0,logs/reliable_on_alice.log
-reliable_off,0,0,0,0,NA,14,logs/reliable_off_alice.log

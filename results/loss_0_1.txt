@@ -1,7 +1,0 @@
-log=[run] cenário: loss_0_1
-logs/loss_0_1_alice.log
-tentativas=
-acks=
-timeouts=
-retransmissoes=0
-taxa_retransmissao=indefinida
