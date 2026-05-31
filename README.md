@@ -7,14 +7,14 @@ Para compilar o projeto:
 ```bash
 make
 
-````md
+````
 ## Compilação
 
 Para compilar o projeto:
 
 ```bash
 make
-````md
+````
 
 O executável gerado será:
 
