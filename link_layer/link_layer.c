@@ -1,4 +1,4 @@
-#include "link.h"
+#include "link_layer.h"
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
@@ -7,7 +7,59 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
-#include <pthread.h>
+
+const char *g_hosts_file = "hosts";
+
+double g_loss_rate   = 0.10;
+int    g_average_delay = 100;
+int    g_offset_delay  = 70;
+int    g_reliable      = 1;
+
+// Carregar configurações
+int load_link_config(const char *filename)
+{
+    FILE *fp = fopen(filename, "r");
+
+    if (!fp) {
+        perror("config");
+        return -1;
+    }
+
+    char line[256];
+
+    while (fgets(line, sizeof(line), fp)) {
+
+        if (strncmp(line, "loss_rate=", 10) == 0) {
+            g_loss_rate = atof(line + 10);
+        }
+
+        else if (strncmp(line, "average_delay=", 14) == 0) {
+            g_average_delay = atoi(line + 14);
+        }
+
+        else if (strncmp(line, "offset_delay=", 13) == 0) {
+            g_offset_delay = atoi(line + 13);
+        }
+
+        else if (strncmp(line, "reliable=", 9) == 0) {
+            g_reliable = atoi(line + 9);
+        }
+    }
+
+    fclose(fp);
+
+    printf(
+        "[config] loss=%.2f delay=%d offset=%d reliable=%d\n",
+        g_loss_rate,
+        g_average_delay,
+        g_offset_delay,
+        g_reliable
+    );
+
+    return 0;
+}
+
+void link_set_hosts_file(const char *path) { g_hosts_file = path; }
 
 // Helpers
 
@@ -31,9 +83,10 @@ static ssize_t read_all(int fd, void *buf, size_t n) {
     return (ssize_t)got;
 }
 
-// Servidor TCP persistente -- baseado em rdt3.0
- /*
- * Um único servidor roda em background e deposita frames
+/* Servidor TCP persistente  
+ * O design original abre um servidor TCP a cada chamada de listen_addr,
+ * o que causa conflito quando múltiplas threads escutam ao mesmo tempo.
+ * Solução: um único servidor que roda em background e deposita frames
  * numa fila interna; listen_addr consome dessa fila.
  */
 
@@ -42,32 +95,30 @@ static ssize_t read_all(int fd, void *buf, size_t n) {
 typedef struct {
     struct Frame *frames[QUEUE_CAP];
     int head, tail, count;
-    pthread_mutex_t mutex;
+    pthread_mutex_t mtx;
     pthread_cond_t  cond;
 } FrameQueue;
 
 static FrameQueue g_queue = {
     .head = 0, .tail = 0, .count = 0,
-    .mutex  = PTHREAD_MUTEX_INITIALIZER,
+    .mtx  = PTHREAD_MUTEX_INITIALIZER,
     .cond = PTHREAD_COND_INITIALIZER,
 };
 
-// Empurra o quadro encapsulado na fila 
 static void queue_push(struct Frame *f) {
-    pthread_mutex_lock(&g_queue.mutex);
+    pthread_mutex_lock(&g_queue.mtx);
     if (g_queue.count < QUEUE_CAP) {
         g_queue.frames[g_queue.tail] = f;
         g_queue.tail = (g_queue.tail + 1) % QUEUE_CAP;
         g_queue.count++;
         pthread_cond_broadcast(&g_queue.cond);
     } else {
-        // descarta se fila cheia
-        free(f->data); free(f); 
+        free(f->data); free(f); /* descarta se fila cheia */
     }
-    pthread_mutex_unlock(&g_queue.mutex);
+    pthread_mutex_unlock(&g_queue.mtx);
 }
 
-// Retira o primeiro frame com destinationAdress == mac, ou NULL em timeout.
+/* Retira o primeiro frame com destinationAdress == mac, ou NULL em timeout. */
 static struct Frame *queue_pop(int mac, int timeout_us) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
@@ -75,7 +126,7 @@ static struct Frame *queue_pop(int mac, int timeout_us) {
     ts.tv_nsec += (timeout_us % 1000000) * 1000L;
     if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
 
-    pthread_mutex_lock(&g_queue.mutex);
+    pthread_mutex_lock(&g_queue.mtx);
     while (1) {
         /* procura frame para este mac */
         for (int i = 0; i < g_queue.count; i++) {
@@ -90,20 +141,20 @@ static struct Frame *queue_pop(int mac, int timeout_us) {
                 }
                 g_queue.tail = (g_queue.tail - 1 + QUEUE_CAP) % QUEUE_CAP;
                 g_queue.count--;
-                pthread_mutex_unlock(&g_queue.mutex);
+                pthread_mutex_unlock(&g_queue.mtx);
                 return f;
             }
         }
         /* aguarda com timeout */
-        int r = pthread_cond_timedwait(&g_queue.cond, &g_queue.mutex, &ts);
+        int r = pthread_cond_timedwait(&g_queue.cond, &g_queue.mtx, &ts);
         if (r != 0) { /* ETIMEDOUT */
-            pthread_mutex_unlock(&g_queue.mutex);
+            pthread_mutex_unlock(&g_queue.mtx);
             return NULL;
         }
     }
 }
 
-// Thread do servidor: aceita conexões e empurra frames na fila
+// Thread do servidor: aceita conexões e empurra frames na fila.
 static void *server_thread(void *arg) {
     int srv = *(int *)arg;
     free(arg);
@@ -133,6 +184,8 @@ static void *server_thread(void *arg) {
     }
     return NULL;
 }
+
+// link_server_start
 
 int link_server_start(char* host, char* port) {
     (void)host;
@@ -164,7 +217,7 @@ int link_server_start(char* host, char* port) {
 
 int send_packet(int mac_destination, int mac_source, void* data, int data_size){
     //packet loss
-    if ((float)rand()/(float)RAND_MAX <= LOSS_RATE)
+    if ((float)rand()/(float)RAND_MAX <= g_loss_rate)
     {
         return 0;
     }
@@ -183,7 +236,7 @@ int send_packet(int mac_destination, int mac_source, void* data, int data_size){
     size_t len = 0;
     ssize_t read;
 
-    fp = fopen(FILE_HOSTS, "r");
+    fp = fopen(g_hosts_file, "r");
     if (fp == NULL){
         printf("no hosts file");
         free(linkData);
@@ -230,23 +283,21 @@ int send_packet(int mac_destination, int mac_source, void* data, int data_size){
         free(line);
 
     //delay de envio
-    int delay = AVARAGE_DELAY - OFSET_DELAY + rand()%(2*OFSET_DELAY+1);
+    int delay = g_average_delay - g_offset_delay + rand()%(2*g_offset_delay+1);
     usleep(delay * 1000);
     
     return 0;
 }
 
 int listen_addr(struct Frame *frame, int mac_adress, char* host, char* port, int timeout){
-    // servidor já iniciado por link_server_start
-    (void)host; (void)port;
+    (void)host; (void)port; // servidor já iniciado por link_server_start
 
     struct Frame *f = queue_pop(mac_adress, timeout);
-    if (!f) return 1; /* timeout */
+    if (!f) return 1; // timeout
 
     frame->destinationAdress = f->destinationAdress;
     frame->sourceAdress      = f->sourceAdress;
-    // transfere responsabilidade
-    frame->data              = f->data; 
+    frame->data              = f->data; // transfere ownership
     free(f);
     return 0;
 }

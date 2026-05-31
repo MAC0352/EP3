@@ -8,6 +8,8 @@
 #define TRANSPORT_TIMEOUT_US  2000000  
 #define TRANSPORT_MAX_RETRIES 3
 
+extern int g_reliable;
+
 /*
 * Envia 'data' (data_size bytes) de forma confiável usando  rdt3.0
 * (stop-and-wait com ACK + retransmissão por timeout).

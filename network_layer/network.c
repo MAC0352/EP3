@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "network.h"
-#include "../link_layer/link.c"
+#include "../link_layer/link_layer.h"
 
 // wire format do Packet: [headerLength(4)][totalLength(4)][src(4)][dst(4)][payload...]
 #define PKT_HDR_SIZE (4 * (int)sizeof(int))

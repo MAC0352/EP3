@@ -21,7 +21,7 @@
 #include <pthread.h>
 
 #include "../transport_layer/transport.h"
-#include "../link_layer/link.h"
+#include "../link_layer/link_layer.h"
 
 // Contexto compartilhado com a thread receptora
 typedef struct {
